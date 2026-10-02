@@ -1,0 +1,90 @@
+{
+  "uid": "joomla-traffic",
+  "title": "Joomla - Tráfico y Logs",
+  "tags": ["joomla", "nginx", "trafico"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Peticiones por minuto según clase HTTP",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 9 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres-ds" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres-ds" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(ts,'1m'), status_class AS metric, count(*) AS value FROM monitoring.v_access_logs WHERE $__timeFilter(ts) GROUP BY 1,2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "piechart",
+      "title": "Peticiones por código HTTP",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 9 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres-ds" },
+      "options": {
+        "reduceOptions": { "values": true, "calcs": [], "fields": "/^requests$/" },
+        "pieType": "pie",
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value"] }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres-ds" },
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true,
+          "rawSql": "SELECT status::text AS code, count(*) AS requests FROM monitoring.v_access_logs WHERE $__timeFilter(ts) GROUP BY status ORDER BY status"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Top 10 IPs recurrentes",
+      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 9 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres-ds" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres-ds" },
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true,
+          "rawSql": "SELECT client_ip, count(*) AS requests, max(ts) AS last_seen FROM monitoring.v_access_logs WHERE $__timeFilter(ts) GROUP BY client_ip ORDER BY requests DESC LIMIT 10"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "bargauge",
+      "title": "Peticiones por servicio",
+      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 9 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres-ds" },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "reduceOptions": { "values": true, "calcs": [], "fields": "/^requests$/" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "postgres-ds" },
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true,
+          "rawSql": "SELECT service, count(*) AS requests FROM monitoring.v_access_logs WHERE $__timeFilter(ts) GROUP BY service ORDER BY requests DESC"
+        }
+      ]
+    }
+  ]
+}

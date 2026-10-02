@@ -1,0 +1,156 @@
+name: parcial-redes
+
+services:
+  # ------------------------------------------------------------------ 1. NGINX
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "80:80"                      # ÚNICO puerto publicado al host
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - nginx_logs:/var/log/nginx    # logs compartidos con PostgreSQL
+    depends_on:
+      - joomla
+      - jupyter
+      - grafana
+    networks:
+      - frontend_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/nginx-health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------- 2. JOOMLA
+  joomla:
+    image: joomla:latest
+    container_name: joomla
+    environment:
+      JOOMLA_DB_HOST: database:5432
+      JOOMLA_DB_TYPE: pgsql
+      JOOMLA_DB_NAME: ${POSTGRES_DB}
+      JOOMLA_DB_USER: ${POSTGRES_USER}
+      JOOMLA_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      JOOMLA_SITE_NAME: ${JOOMLA_SITE_NAME}
+      JOOMLA_ADMIN_USER: ${JOOMLA_ADMIN_USER}
+      JOOMLA_ADMIN_USERNAME: ${JOOMLA_ADMIN_USERNAME}
+      JOOMLA_ADMIN_PASSWORD: ${JOOMLA_ADMIN_PASSWORD}
+      JOOMLA_ADMIN_EMAIL: ${JOOMLA_ADMIN_EMAIL}
+    volumes:
+      - joomla_data:/var/www/html
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - frontend_net
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "php -r 'exit(@fsockopen(\"127.0.0.1\",80)?0:1);'"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
+  # --------------------------------------------------------------- 3. DATABASE
+  database:
+    image: postgres:16-alpine
+    container_name: database
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+      - nginx_logs:/var/log/nginx:ro      # file_fdw lee el log de Nginx
+    networks:
+      - backend_net                       # SOLO red interna
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- 4. JUPYTER
+  jupyter:
+    build: ./jupyter
+    image: parcial-jupyter:latest
+    container_name: jupyter
+    command: ["start-notebook.py", "--ServerApp.base_url=/jupyter"]
+    environment:
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN:-parcial2026}
+      POSTGRES_HOST: database
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./jupyter/notebooks:/home/jovyan/work     # bind-mount del cuaderno
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - frontend_net
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8888/jupyter/api')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- 5. GRAFANA
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      GF_SERVER_DOMAIN: localhost
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin12345}
+      GF_SERVER_ROOT_URL: "http://localhost/grafana/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_CSRF_TRUSTED_ORIGINS: "localhost"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/joomla_logs.json
+      # Variables usadas por provisioning/datasources/datasource.yml
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - frontend_net
+      - backend_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/grafana/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+networks:
+  frontend_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.1.0/24
+  backend_net:
+    driver: bridge
+    internal: true                # sin salida/entrada hacia el exterior
+    ipam:
+      config:
+        - subnet: 172.28.2.0/24
+
+volumes:
+  db_data:
+  joomla_data:
+  grafana_data:
+  nginx_logs:
