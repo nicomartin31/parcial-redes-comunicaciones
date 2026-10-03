@@ -80,9 +80,13 @@ services:
     build: ./jupyter
     image: parcial-jupyter:latest
     container_name: jupyter
-    command: ["start-notebook.py", "--ServerApp.base_url=/jupyter"]
+    command:
+      - start-notebook.py
+      - --ServerApp.base_url=/jupyter
+      - --ServerApp.default_url=/lab/tree/work/analisis_datos.ipynb
+      - --IdentityProvider.token=
+      - --ServerApp.password=
     environment:
-      JUPYTER_TOKEN: ${JUPYTER_TOKEN:-parcial2026}
       POSTGRES_HOST: database
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
